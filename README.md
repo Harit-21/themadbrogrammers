@@ -1,3 +1,6 @@
+![TheMadBrogrammers Banner](https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExazN4ZDRrcmlsdDJhNDRtNjU0cTR6ZnR6YnRkeGl5eGw5bnR4Zm5rciZlcD12MV9naWZzX3NlYXJjaCZjdD1n/YDEiyrRLa6ATrSNQND/giphy.gif)
+
+
 # 🚀 Welcome to **TheMadBrogrammers**
 
 > This is not just another dev journey.
