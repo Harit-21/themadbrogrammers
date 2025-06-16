@@ -27,7 +27,7 @@ We don’t believe in boring tutorials. Instead:
 
 Whenever you discover a **god-tier resource**, share it in this GitHub repo:
 
-> 📂 `TheBroGrammers Community`
+> 📂 `TheBrogrammers Community`
 
 Let’s make this the **greatest curated dev hub** for anyone starting out — with real projects, cool ideas, and the most 🔥 resources on the internet.
 
