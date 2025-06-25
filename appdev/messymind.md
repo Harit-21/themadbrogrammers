@@ -2621,3 +2621,1299 @@ This should give you a **solid working base** for:
 
 Let me know!
 ```
+
+
+
+Awesome! Let’s build a **custom MindMapView** for Android in Kotlin that supports:
+
+* Visual nodes with titles
+* Drag-and-drop to move nodes around
+* Visual lines linking parent and child nodes
+* Click listeners on nodes for editing
+
+---
+
+### High-level plan for `MindMapView`:
+
+* Extend `View` or `ViewGroup` (we'll use `ViewGroup` for easier child management)
+* Maintain a tree of nodes internally (each node is a View or drawn element)
+* Draw connecting lines between nodes (override `onDraw`)
+* Support dragging nodes with touch events
+* Allow adding children dynamically
+
+---
+
+### Step 1: Create `MindMapView.kt`
+
+Here’s a **basic but functional** version you can extend.
+
+```kotlin
+package com.themadbrogrammers.messymind.views
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PointF
+import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
+import androidx.core.content.ContextCompat
+import com.themadbrogrammers.messymind.R
+import kotlin.math.max
+import kotlin.math.min
+
+class MindMapView @JvmOverloads constructor(
+    context: Context, attrs: AttributeSet? = null
+) : ViewGroup(context, attrs) {
+
+    // Paint for lines
+    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, R.color.purple_700)
+        strokeWidth = 5f
+    }
+
+    // Root node container
+    private var rootNodeView: NodeView? = null
+
+    // Listener for node clicks
+    interface NodeEventListener {
+        fun onNodeClick(node: NodeView)
+    }
+    private var nodeClickListener: NodeEventListener? = null
+
+    fun addNodeEventListener(listener: NodeEventListener) {
+        nodeClickListener = listener
+    }
+
+    // --- NodeView class for each node ---
+    inner class NodeView(context: Context, val id: Int, var title: String) : TextView(context) {
+        var parentNode: NodeView? = null
+        val children = mutableListOf<NodeView>()
+        var position = PointF(0f, 0f)
+
+        init {
+            text = title
+            setBackgroundResource(R.drawable.node_background)
+            setPadding(30, 20, 30, 20)
+            setOnClickListener {
+                nodeClickListener?.onNodeClick(this)
+            }
+        }
+    }
+
+    fun setRootNode(node: MindNode) {
+        removeAllViews()
+        rootNodeView = NodeView(context, node.userData as Int, node.title).apply {
+            position = PointF(500f, 200f)
+        }
+        addView(rootNodeView)
+        requestLayout()
+        invalidate()
+    }
+
+    fun attachChild(parent: NodeView, childNode: MindNode) {
+        val childView = NodeView(context, childNode.userData as Int, childNode.title).apply {
+            parentNode = parent
+            position = PointF(parent.position.x + 300f, parent.position.y + (children.size * 200f))
+        }
+        parent.children.add(childView)
+        addView(childView)
+        requestLayout()
+        invalidate()
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        // Measure all children with unspecified size
+        for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            measureChild(child, widthMeasureSpec, heightMeasureSpec)
+        }
+        val w = MeasureSpec.getSize(widthMeasureSpec)
+        val h = MeasureSpec.getSize(heightMeasureSpec)
+        setMeasuredDimension(w, h)
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        // Position children based on their stored positions
+        for (i in 0 until childCount) {
+            val child = getChildAt(i) as NodeView
+            val left = child.position.x.toInt()
+            val top = child.position.y.toInt()
+            child.layout(left, top, left + child.measuredWidth, top + child.measuredHeight)
+        }
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        // Draw lines connecting parent and children
+        for (i in 0 until childCount) {
+            val child = getChildAt(i) as NodeView
+            child.parentNode?.let { parent ->
+                canvas.drawLine(
+                    parent.position.x + parent.width / 2,
+                    parent.position.y + parent.height / 2,
+                    child.position.x + child.width / 2,
+                    child.position.y + child.height / 2,
+                    linePaint
+                )
+            }
+        }
+    }
+
+    // Drag support
+    private var draggingNode: NodeView? = null
+    private var dragStartPoint = PointF()
+    private var nodeStartPosition = PointF()
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                // Check if touch is on any node
+                val node = findNodeUnder(event.x, event.y)
+                if (node != null) {
+                    draggingNode = node
+                    dragStartPoint = PointF(event.x, event.y)
+                    nodeStartPosition = PointF(node.position.x, node.position.y)
+                    return true
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                draggingNode?.let {
+                    val dx = event.x - dragStartPoint.x
+                    val dy = event.y - dragStartPoint.y
+                    it.position.x = max(0f, min(width - it.width.toFloat(), nodeStartPosition.x + dx))
+                    it.position.y = max(0f, min(height - it.height.toFloat(), nodeStartPosition.y + dy))
+                    requestLayout()
+                    invalidate()
+                    return true
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                draggingNode = null
+            }
+        }
+        return super.onTouchEvent(event)
+    }
+
+    private fun findNodeUnder(x: Float, y: Float): NodeView? {
+        for (i in childCount - 1 downTo 0) {
+            val child = getChildAt(i) as NodeView
+            val left = child.position.x
+            val top = child.position.y
+            val right = left + child.width
+            val bottom = top + child.height
+            if (x in left..right && y in top..bottom) {
+                return child
+            }
+        }
+        return null
+    }
+}
+```
+
+---
+
+### Step 2: Create `node_background.xml` (drawable for nodes)
+
+Put in `res/drawable/node_background.xml`:
+
+```xml
+<shape xmlns:android="http://schemas.android.com/apk/res/android" >
+    <solid android:color="#FFD54F"/>
+    <corners android:radius="12dp"/>
+    <stroke
+        android:width="2dp"
+        android:color="#FFA000"/>
+</shape>
+```
+
+---
+
+### Step 3: Update `activity_main.xml`
+
+Add `MindMapView` and buttons:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootFrame"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.themadbrogrammers.messymind.views.MindMapView
+        android:id="@+id/mindMapView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#FFF" />
+
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_gravity="bottom|center_horizontal"
+        android:padding="12dp"
+        android:background="#AA000000"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content">
+
+        <Button
+            android:id="@+id/btnAddRoot"
+            android:text="Add Root"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+        
+        <Button
+            android:id="@+id/btnExportPng"
+            android:text="Export PNG"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <Button
+            android:id="@+id/btnExportText"
+            android:text="Export Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </LinearLayout>
+</FrameLayout>
+```
+
+---
+
+### Explanation
+
+* `MindMapView` holds nodes as `TextView`-based `NodeView` objects.
+* Nodes can be dragged anywhere inside the view.
+* Lines connect parent nodes to children.
+* Clicking a node triggers your listener to edit or add child nodes.
+* Root node is centered initially.
+* Child nodes are offset from their parent by default on attach.
+
+---
+
+### Next steps
+
+* Integrate this `MindMapView` into your `MainActivity` (already prepared in the code I shared).
+* You can improve node styles, animations, and add multi-touch gestures later.
+* Optionally add zoom/pan for large maps.
+
+---
+
+If you want, I can help you polish this further or provide the full project files with this integrated. Just say!
+
+
+
+
+Sure! Here's a **minimal but complete Android project** integrating the custom `MindMapView` with drag-and-drop nodes and linking. This will give you a working base for your **MessyMind** app with visual mind mapping.
+
+---
+
+# MessyMind Android App — Full Project (Kotlin + Room + MindMapView)
+
+---
+
+## 1. Project Structure
+
+```
+app/
+├── src/
+│   └── main/
+│       ├── java/com/themadbrogrammers/messymind/
+│       │   ├── MainActivity.kt
+│       │   ├── data/
+│       │   │   ├── MindMapDatabase.kt
+│       │   │   ├── MindNode.kt
+│       │   │   ├── MindNodeDao.kt
+│       │   │   └── MindNodeRepository.kt
+│       │   ├── viewmodels/
+│       │   │   └── MindMapViewModel.kt
+│       │   ├── views/
+│       │   │   └── MindMapView.kt
+│       │   └── MessyMindApplication.kt
+│       ├── res/
+│       │   ├── drawable/
+│       │   │   └── node_background.xml
+│       │   ├── layout/
+│       │   │   └── activity_main.xml
+│       │   ├── values/
+│       │   │   └── colors.xml
+│       └── AndroidManifest.xml
+├── build.gradle (app)
+└── build.gradle (project)
+```
+
+---
+
+## 2. Source Files
+
+### `MessyMindApplication.kt`
+
+```kotlin
+package com.themadbrogrammers.messymind
+
+import android.app.Application
+import com.themadbrogrammers.messymind.data.MindMapDatabase
+
+class MessyMindApplication : Application() {
+    val database by lazy { MindMapDatabase.getDatabase(this) }
+}
+```
+
+---
+
+### `MainActivity.kt`
+
+```kotlin
+package com.themadbrogrammers.messymind
+
+import android.graphics.Bitmap
+import android.os.Bundle
+import android.widget.Button
+import android.widget.Toast
+import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import com.themadbrogrammers.messymind.data.MindNode
+import com.themadbrogrammers.messymind.views.MindMapView
+import com.themadbrogrammers.messymind.viewmodels.MindMapViewModel
+import com.themadbrogrammers.messymind.views.MindMapView.NodeView
+import kotlinx.coroutines.launch
+
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var mindMapView: MindMapView
+    private val viewModel: MindMapViewModel by viewModels()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        mindMapView = findViewById(R.id.mindMapView)
+        val btnAddRoot = findViewById<Button>(R.id.btnAddRoot)
+        val btnExportPng = findViewById<Button>(R.id.btnExportPng)
+        val btnExportText = findViewById<Button>(R.id.btnExportText)
+
+        mindMapView.addNodeEventListener(object : MindMapView.NodeEventListener {
+            override fun onNodeClick(node: NodeView) {
+                Toast.makeText(this@MainActivity, "Clicked: ${node.text}", Toast.LENGTH_SHORT).show()
+                // TODO: Open dialog to edit or add child node here
+            }
+        })
+
+        btnAddRoot.setOnClickListener {
+            // For demo, add fixed root node
+            val rootNode = MindNode(id = 1, title = "Root Node", parentId = null, userData = 1)
+            mindMapView.setRootNode(rootNode)
+        }
+
+        btnExportPng.setOnClickListener {
+            val bitmap = exportMindMapAsBitmap()
+            // TODO: Save or share bitmap
+            Toast.makeText(this, "Exported mind map as PNG (bitmap)", Toast.LENGTH_SHORT).show()
+        }
+
+        btnExportText.setOnClickListener {
+            val text = exportMindMapAsText()
+            // TODO: Share or save text
+            Toast.makeText(this, "Exported mind map as text:\n$text", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun exportMindMapAsBitmap(): Bitmap {
+        val bitmap = Bitmap.createBitmap(
+            mindMapView.width,
+            mindMapView.height,
+            Bitmap.Config.ARGB_8888
+        )
+        val canvas = android.graphics.Canvas(bitmap)
+        mindMapView.draw(canvas)
+        return bitmap
+    }
+
+    private fun exportMindMapAsText(): String {
+        // Simple example: list all nodes visible
+        val sb = StringBuilder()
+        for (i in 0 until mindMapView.childCount) {
+            val node = mindMapView.getChildAt(i) as NodeView
+            sb.append("- ${node.text}\n")
+        }
+        return sb.toString()
+    }
+}
+```
+
+---
+
+### `MindMapView.kt`
+
+```kotlin
+package com.themadbrogrammers.messymind.views
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PointF
+import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.ViewGroup
+import android.widget.TextView
+import androidx.core.content.ContextCompat
+import com.themadbrogrammers.messymind.R
+import kotlin.math.max
+import kotlin.math.min
+
+class MindMapView @JvmOverloads constructor(
+    context: Context, attrs: AttributeSet? = null
+) : ViewGroup(context, attrs) {
+
+    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, R.color.purple_700)
+        strokeWidth = 5f
+    }
+
+    interface NodeEventListener {
+        fun onNodeClick(node: NodeView)
+    }
+    private var nodeClickListener: NodeEventListener? = null
+
+    fun addNodeEventListener(listener: NodeEventListener) {
+        nodeClickListener = listener
+    }
+
+    inner class NodeView(context: Context, val id: Int, title: String) : TextView(context) {
+        var parentNode: NodeView? = null
+        val children = mutableListOf<NodeView>()
+        var position = PointF(0f, 0f)
+
+        init {
+            text = title
+            setBackgroundResource(R.drawable.node_background)
+            setPadding(30, 20, 30, 20)
+            setOnClickListener {
+                nodeClickListener?.onNodeClick(this)
+            }
+        }
+    }
+
+    private var rootNodeView: NodeView? = null
+
+    fun setRootNode(node: com.themadbrogrammers.messymind.data.MindNode) {
+        removeAllViews()
+        rootNodeView = NodeView(context, node.userData as Int, node.title).apply {
+            position = PointF(500f, 200f)
+        }
+        addView(rootNodeView)
+        requestLayout()
+        invalidate()
+    }
+
+    fun attachChild(parent: NodeView, childNode: com.themadbrogrammers.messymind.data.MindNode) {
+        val childView = NodeView(context, childNode.userData as Int, childNode.title).apply {
+            parentNode = parent
+            position = PointF(parent.position.x + 300f, parent.position.y + (parent.children.size * 200f))
+        }
+        parent.children.add(childView)
+        addView(childView)
+        requestLayout()
+        invalidate()
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            measureChild(child, widthMeasureSpec, heightMeasureSpec)
+        }
+        val w = MeasureSpec.getSize(widthMeasureSpec)
+        val h = MeasureSpec.getSize(heightMeasureSpec)
+        setMeasuredDimension(w, h)
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        for (i in 0 until childCount) {
+            val child = getChildAt(i) as NodeView
+            val left = child.position.x.toInt()
+            val top = child.position.y.toInt()
+            child.layout(left, top, left + child.measuredWidth, top + child.measuredHeight)
+        }
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        for (i in 0 until childCount) {
+            val child = getChildAt(i) as NodeView
+            child.parentNode?.let { parent ->
+                canvas.drawLine(
+                    parent.position.x + parent.width / 2,
+                    parent.position.y + parent.height / 2,
+                    child.position.x + child.width / 2,
+                    child.position.y + child.height / 2,
+                    linePaint
+                )
+            }
+        }
+    }
+
+    private var draggingNode: NodeView? = null
+    private var dragStartPoint = PointF()
+    private var nodeStartPosition = PointF()
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                val node = findNodeUnder(event.x, event.y)
+                if (node != null) {
+                    draggingNode = node
+                    dragStartPoint = PointF(event.x, event.y)
+                    nodeStartPosition = PointF(node.position.x, node.position.y)
+                    return true
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                draggingNode?.let {
+                    val dx = event.x - dragStartPoint.x
+                    val dy = event.y - dragStartPoint.y
+                    it.position.x = max(0f, min(width - it.width.toFloat(), nodeStartPosition.x + dx))
+                    it.position.y = max(0f, min(height - it.height.toFloat(), nodeStartPosition.y + dy))
+                    requestLayout()
+                    invalidate()
+                    return true
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                draggingNode = null
+            }
+        }
+        return super.onTouchEvent(event)
+    }
+
+    private fun findNodeUnder(x: Float, y: Float): NodeView? {
+        for (i in childCount - 1 downTo 0) {
+            val child = getChildAt(i) as NodeView
+            val left = child.position.x
+            val top = child.position.y
+            val right = left + child.width
+            val bottom = top + child.height
+            if (x in left..right && y in top..bottom) {
+                return child
+            }
+        }
+        return null
+    }
+}
+```
+
+---
+
+### `MindNode.kt`
+
+```kotlin
+package com.themadbrogrammers.messymind.data
+
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
+@Entity(tableName = "mind_nodes")
+data class MindNode(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val title: String,
+    val parentId: Int? = null,
+    val userData: Any? = null
+)
+```
+
+---
+
+### `MindNodeDao.kt`
+
+```kotlin
+package com.themadbrogrammers.messymind.data
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.Query
+import androidx.room.Update
+
+@Dao
+interface MindNodeDao {
+    @Insert
+    suspend fun insert(node: MindNode): Long
+
+    @Update
+    suspend fun update(node: MindNode)
+
+    @Query("SELECT * FROM mind_nodes WHERE parentId IS NULL")
+    suspend fun getRootNodes(): List<MindNode>
+
+    @Query("SELECT * FROM mind_nodes WHERE parentId = :parentId")
+    suspend fun getChildNodes(parentId: Int): List<MindNode>
+
+    @Query("SELECT * FROM mind_nodes")
+    suspend fun getAllNodes(): List<MindNode>
+}
+```
+
+---
+
+### `MindMapDatabase.kt`
+
+```kotlin
+package com.themadbrogrammers.messymind.data
+
+import android.content.Context
+import androidx.room.Database
+import androidx.room.Room
+import androidx.room.RoomDatabase
+
+@Database(entities = [MindNode::class], version = 1)
+abstract class MindMapDatabase : RoomDatabase() {
+    abstract fun mindNodeDao(): MindNodeDao
+
+    companion object {
+        @Volatile
+        private var INSTANCE: MindMapDatabase? = null
+
+        fun getDatabase(context: Context): MindMapDatabase {
+            return INSTANCE ?: synchronized(this) {
+                val instance = Room.databaseBuilder(
+                    context.applicationContext,
+                    MindMapDatabase::class.java,
+                    "mindmap_database"
+                ).build()
+                INSTANCE = instance
+                instance
+            }
+        }
+    }
+}
+```
+
+---
+
+### `MindNodeRepository.kt`
+
+```kotlin
+package com.themadbrogrammers.messymind.data
+
+class MindNodeRepository(private val dao: MindNodeDao) {
+
+    suspend fun insertNode(node: MindNode) = dao.insert(node)
+
+    suspend fun updateNode(node: MindNode) = dao.update(node)
+
+    suspend fun getRootNodes() = dao.getRootNodes()
+
+    suspend fun getChildNodes(parentId: Int) = dao.getChildNodes(parentId)
+
+    suspend fun getAllNodes() = dao.getAllNodes()
+}
+```
+
+---
+
+### `MindMapViewModel.kt`
+
+```kotlin
+package com.themadbrogrammers.messymind.viewmodels
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.themadbrogrammers.messymind.data.MindMapDatabase
+import com.themadbrogrammers.messymind.data.MindNode
+import com.themadbrogrammers.messymind.data.MindNodeRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+
+class MindMapViewModel(application: Application) : AndroidViewModel(application) {
+    private val repository: MindNodeRepository
+
+    init {
+        val dao = MindMapDatabase.getDatabase(application).mindNodeDao()
+        repository = MindNodeRepository(dao)
+    }
+
+    fun insertNode(node: MindNode) = viewModelScope.launch(Dispatchers.IO) {
+        repository.insertNode(node)
+    }
+
+    fun updateNode(node: MindNode) = viewModelScope.launch(Dispatchers.IO) {
+        repository.updateNode(node)
+    }
+}
+```
+
+---
+
+## 3. Resources
+
+### `res/drawable/node_background.xml`
+
+```xml
+<shape xmlns:android="http://schemas.android.com/apk/res/android" >
+    <solid android:color="#FFD54F"/>
+    <corners android:radius="12dp"/>
+    <stroke
+        android:width="2dp"
+        android:color="#FFA000"/>
+</shape>
+```
+
+---
+
+### `res/layout/activity_main.xml`
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootFrame"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.themadbrogrammers.messymind.views.MindMapView
+        android:id="@+id/mindMapView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#FFFFFF" />
+
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_gravity="bottom|center_horizontal"
+        android:padding="12dp"
+        android:background="#AA000000"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content">
+
+        <Button
+            android:id="@+id/btnAddRoot"
+            android:text="Add Root"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+        
+        <Button
+            android:id="@+id/btnExportPng"
+            android:text="Export PNG"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <Button
+            android:id="@+id/btnExportText"
+            android:text="Export Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </LinearLayout>
+</FrameLayout>
+```
+
+---
+
+### `res/values/colors.xml`
+
+```xml
+<resources>
+    <color name="purple_700">#6200EE</color>
+</resources>
+```
+
+---
+
+## 4. Manifest
+
+### `AndroidManifest.xml`
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.themadbrogrammers.messymind">
+
+    <application
+        android:name=".MessyMindApplication"
+        android:allowBackup="true"
+        android:label="MessyMind"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+
+        <activity android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
+```
+
+---
+
+## 5. Gradle (app/build.gradle)
+
+Make sure you have these dependencies:
+
+```gradle
+plugins {
+    id 'com.android.application'
+    id 'kotlin-android'
+    id 'kotlin-kapt'
+}
+
+android {
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.themadbrogrammers.messymind"
+        minSdk 21
+        targetSdk 33
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildFeatures {
+        viewBinding true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.0"
+    implementation "androidx.core:core-ktx:1.10.1"
+    implementation "androidx.appcompat:appcompat:1.6.1"
+    implementation "com.google.android.material:material:1.9.0"
+
+    // Lifecycle and ViewModel
+    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.1"
+    implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.6.1"
+
+    // Room components
+    implementation "androidx.room:room-runtime:2.5.2"
+    kapt "androidx.room:room-compiler:2.5.2"
+    implementation "androidx.room:room-ktx:2.5.2"
+}
+```
+
+---
+
+## What You Get
+
+* A **drag-and-drop visual mind map** of nodes with lines connecting parents to children.
+* Nodes as tappable TextViews with background and padding.
+* Basic buttons for adding a root node and exporting the map
+
+
+Let's now add **zoom and pan support** to your custom `MindMapView` for handling large maps!
+
+---
+
+## ✅ Features Added
+
+* **Pinch-to-zoom** (multi-touch scaling)
+* **Two-finger pan** (drag the entire canvas)
+* **Proper scaling + translation in `onDraw()` and layout**
+
+---
+
+## 🔧 Step-by-step Code Update
+
+### ✅ Update `MindMapView.kt` — Add Scaling and Panning
+
+**Add these properties at the top:**
+
+```kotlin
+private var scaleFactor = 1.0f
+private var translationX = 0f
+private var translationY = 0f
+
+private var lastTouchX = 0f
+private var lastTouchY = 0f
+private var activePointerId = MotionEvent.INVALID_POINTER_ID
+
+private var lastDistance = 0f
+```
+
+---
+
+### ✅ Modify `dispatchDraw` to apply canvas transformations
+
+Replace `dispatchDraw` with:
+
+```kotlin
+override fun dispatchDraw(canvas: Canvas) {
+    canvas.save()
+
+    // Apply scaling and panning
+    canvas.translate(translationX, translationY)
+    canvas.scale(scaleFactor, scaleFactor)
+
+    // Draw connecting lines between parent and children
+    for (i in 0 until childCount) {
+        val child = getChildAt(i) as NodeView
+        child.parentNode?.let { parent ->
+            canvas.drawLine(
+                parent.position.x + parent.width / 2,
+                parent.position.y + parent.height / 2,
+                child.position.x + child.width / 2,
+                child.position.y + child.height / 2,
+                linePaint
+            )
+        }
+    }
+
+    super.dispatchDraw(canvas)
+    canvas.restore()
+}
+```
+
+---
+
+### ✅ Update `onTouchEvent` to support pan & zoom gestures
+
+Replace the entire `onTouchEvent` function with:
+
+```kotlin
+override fun onTouchEvent(event: MotionEvent): Boolean {
+    when (event.pointerCount) {
+        1 -> handleSingleTouch(event)
+        2 -> handleMultiTouch(event)
+    }
+
+    if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+        draggingNode = null
+        activePointerId = MotionEvent.INVALID_POINTER_ID
+    }
+
+    return true
+}
+```
+
+---
+
+### ✅ Add helper methods for touch:
+
+```kotlin
+private fun handleSingleTouch(event: MotionEvent) {
+    when (event.actionMasked) {
+        MotionEvent.ACTION_DOWN -> {
+            val x = (event.x - translationX) / scaleFactor
+            val y = (event.y - translationY) / scaleFactor
+            val node = findNodeUnder(x, y)
+            if (node != null) {
+                draggingNode = node
+                dragStartPoint = PointF(x, y)
+                nodeStartPosition = PointF(node.position.x, node.position.y)
+            } else {
+                lastTouchX = event.x
+                lastTouchY = event.y
+                activePointerId = event.getPointerId(0)
+            }
+        }
+
+        MotionEvent.ACTION_MOVE -> {
+            draggingNode?.let {
+                val x = (event.x - translationX) / scaleFactor
+                val y = (event.y - translationY) / scaleFactor
+                val dx = x - dragStartPoint.x
+                val dy = y - dragStartPoint.y
+                it.position.x = nodeStartPosition.x + dx
+                it.position.y = nodeStartPosition.y + dy
+                requestLayout()
+                invalidate()
+            } ?: run {
+                val dx = event.x - lastTouchX
+                val dy = event.y - lastTouchY
+                translationX += dx
+                translationY += dy
+                lastTouchX = event.x
+                lastTouchY = event.y
+                invalidate()
+            }
+        }
+    }
+}
+
+private fun handleMultiTouch(event: MotionEvent) {
+    if (event.pointerCount < 2) return
+
+    val x1 = event.getX(0)
+    val y1 = event.getY(0)
+    val x2 = event.getX(1)
+    val y2 = event.getY(1)
+
+    val currentDistance = Math.hypot((x2 - x1).toDouble(), (y2 - y1).toDouble()).toFloat()
+
+    if (lastDistance != 0f) {
+        val scaleChange = currentDistance / lastDistance
+        scaleFactor *= scaleChange
+        scaleFactor = scaleFactor.coerceIn(0.5f, 3f)
+        invalidate()
+    }
+
+    lastDistance = currentDistance
+}
+```
+
+---
+
+### 🧪 Test & Notes
+
+* You can zoom between **0.5x to 3x** (adjustable)
+* Use one finger to drag nodes, two fingers to move the canvas or zoom
+* This works well with all existing node positioning logic
+
+---
+
+### ✅ Optional Improvements
+
+* Add double-tap to reset zoom
+* Add inertia scroll for pan
+* Show mini-map / scale indicator
+
+---
+
+Would you like me to now help add **custom dialogs for editing nodes**, or focus on **saving/loading node positions with Room**?
+
+
+Here’s the fully updated **MindMapView\.kt** with integrated **pan & zoom support**, ready to replace your existing implementation:
+
+---
+
+### `MindMapView.kt`
+
+```kotlin
+package com.themadbrogrammers.messymind.views
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PointF
+import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.ViewGroup
+import android.widget.TextView
+import androidx.core.content.ContextCompat
+import com.themadbrogrammers.messymind.R
+import kotlin.math.max
+import kotlin.math.min
+
+class MindMapView @JvmOverloads constructor(
+    context: Context, attrs: AttributeSet? = null
+) : ViewGroup(context, attrs) {
+
+    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, R.color.purple_700)
+        strokeWidth = 5f
+    }
+
+    interface NodeEventListener {
+        fun onNodeClick(node: NodeView)
+    }
+    private var nodeClickListener: NodeEventListener? = null
+
+    fun addNodeEventListener(listener: NodeEventListener) {
+        nodeClickListener = listener
+    }
+
+    inner class NodeView(context: Context, val id: Int, title: String) : TextView(context) {
+        var parentNode: NodeView? = null
+        val children = mutableListOf<NodeView>()
+        var position = PointF(0f, 0f)
+
+        init {
+            text = title
+            setBackgroundResource(R.drawable.node_background)
+            setPadding(30, 20, 30, 20)
+            setOnClickListener {
+                nodeClickListener?.onNodeClick(this)
+            }
+        }
+    }
+
+    private var rootNodeView: NodeView? = null
+
+    // Scaling & panning
+    private var scaleFactor = 1.0f
+    private var translationX = 0f
+    private var translationY = 0f
+    private var lastTouchX = 0f
+    private var lastTouchY = 0f
+    private var activePointerId = MotionEvent.INVALID_POINTER_ID
+    private var lastDistance = 0f
+
+    private var draggingNode: NodeView? = null
+    private var dragStartPoint = PointF()
+    private var nodeStartPosition = PointF()
+
+    fun setRootNode(node: com.themadbrogrammers.messymind.data.MindNode) {
+        removeAllViews()
+        rootNodeView = NodeView(context, node.userData as Int, node.title).apply {
+            position = PointF(500f, 200f)
+        }
+        addView(rootNodeView)
+        requestLayout()
+        invalidate()
+    }
+
+    fun attachChild(parent: NodeView, childNode: com.themadbrogrammers.messymind.data.MindNode) {
+        val childView = NodeView(context, childNode.userData as Int, childNode.title).apply {
+            parentNode = parent
+            position = PointF(parent.position.x + 300f, parent.position.y + (parent.children.size * 200f))
+        }
+        parent.children.add(childView)
+        addView(childView)
+        requestLayout()
+        invalidate()
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            measureChild(child, widthMeasureSpec, heightMeasureSpec)
+        }
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.getSize(heightMeasureSpec))
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        for (i in 0 until childCount) {
+            val child = getChildAt(i) as NodeView
+            val left = child.position.x.toInt()
+            val top = child.position.y.toInt()
+            child.layout(left, top, left + child.measuredWidth, top + child.measuredHeight)
+        }
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        canvas.save()
+        canvas.translate(translationX, translationY)
+        canvas.scale(scaleFactor, scaleFactor)
+
+        for (i in 0 until childCount) {
+            val child = getChildAt(i) as NodeView
+            child.parentNode?.let { p ->
+                canvas.drawLine(
+                    p.position.x + p.width / 2,
+                    p.position.y + p.height / 2,
+                    child.position.x + child.width / 2,
+                    child.position.y + child.height / 2,
+                    linePaint
+                )
+            }
+        }
+
+        super.dispatchDraw(canvas)
+        canvas.restore()
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.pointerCount) {
+            1 -> handleSingleTouch(event)
+            2 -> handleMultiTouch(event)
+        }
+        if (event.actionMasked in listOf(MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL)) {
+            draggingNode = null
+            activePointerId = MotionEvent.INVALID_POINTER_ID
+        }
+        return true
+    }
+
+    private fun handleSingleTouch(event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                val x = (event.x - translationX) / scaleFactor
+                val y = (event.y - translationY) / scaleFactor
+                val node = findNodeUnder(x, y)
+                if (node != null) {
+                    draggingNode = node
+                    dragStartPoint = PointF(x, y)
+                    nodeStartPosition = PointF(node.position.x, node.position.y)
+                } else {
+                    lastTouchX = event.x
+                    lastTouchY = event.y
+                    activePointerId = event.getPointerId(0)
+                }
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                draggingNode?.let {
+                    val x = (event.x - translationX) / scaleFactor
+                    val y = (event.y - translationY) / scaleFactor
+                    val dx = x - dragStartPoint.x
+                    val dy = y - dragStartPoint.y
+                    it.position.x = nodeStartPosition.x + dx
+                    it.position.y = nodeStartPosition.y + dy
+                    requestLayout()
+                    invalidate()
+                } ?: run {
+                    val dx = event.x - lastTouchX
+                    val dy = event.y - lastTouchY
+                    translationX += dx
+                    translationY += dy
+                    lastTouchX = event.x
+                    lastTouchY = event.y
+                    invalidate()
+                }
+            }
+        }
+    }
+
+    private fun handleMultiTouch(event: MotionEvent) {
+        if (event.pointerCount < 2) return
+        val x1 = event.getX(0)
+        val y1 = event.getY(0)
+        val x2 = event.getX(1)
+        val y2 = event.getY(1)
+        val currentDistance = kotlin.math.hypot((x2 - x1), (y2 - y1))
+        if (lastDistance != 0f) {
+            val scaleChange = currentDistance / lastDistance
+            scaleFactor = (scaleFactor * scaleChange).coerceIn(0.5f, 3f)
+            invalidate()
+        }
+        lastDistance = currentDistance
+    }
+
+    private fun findNodeUnder(x: Float, y: Float): NodeView? {
+        for (i in childCount - 1 downTo 0) {
+            val c = getChildAt(i) as NodeView
+            val left = c.position.x
+            val top = c.position.y
+            if (x in left..left + c.width && y in top..top + c.height) return c
+        }
+        return null
+    }
+}
+```
+
+---
+
+### ✅ Integration Steps
+
+1. **Replace** your old `MindMapView.kt` with this file.
+2. Ensure `activity_main.xml` references this view:
+
+   ```xml
+   <com.themadbrogrammers.messymind.views.MindMapView
+       android:id="@+id/mindMapView"
+       ...
+   />
+   ```
+3. Update your `MainActivity.kt` to use methods `setRootNode(...)`, `attachChild(...)` as before.
+
+---
+
+### ✅ Next Up:
+
+* **Node editing dialogs**: tap to edit or attach children.
+* **Saving node positions & scale in Room**.
+* **Draggable zoom reset/double-tap reset**.
+* **Pet brain animations & AdMob ads integration**.
+
+Let me know which feature you'd like to tackle next!
