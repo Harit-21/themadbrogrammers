@@ -1,3 +1,5 @@
+https://cdn.jsdelivr.net/gh/Harit-21/muse@main/music/Irepeatnooneatifaslam.mp3
+
 Awesome! Here’s a **complete, detailed plan** for building your personal music streaming app using **Flutter + Cloudinary + Supabase (for metadata)**.
 
 ---
